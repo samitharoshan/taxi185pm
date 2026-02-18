@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TaxiMeter Pro – Live GPS Fare Calculator with Map</title>
+  <meta name="description" content="Free online taximeter with live GPS tracking on OpenStreetMap. Calculate taxi fare in real-time based on distance and time. No app needed – works in your browser!" />
+  <meta name="keywords" content="taximeter, taxi meter, fare calculator, GPS taxi, live location taxi, online taximeter, taxi fare calculator" />
+  <meta property="og:title" content="TaxiMeter Pro – Live GPS Fare Calculator" />
+  <meta property="og:description" content="Track your taxi ride and calculate fare in real time using your GPS location and OpenStreetMap." />
+  <meta property="og:type" content="website" />
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <!-- Leaflet JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --yellow: #f5c518;
+      --yellow-dim: #c49a0e;
+      --green: #3fb950;
+      --red: #f85149;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --radius: 16px;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+
+    .logo {
+      width: 40px; height: 40px;
+      background: var(--yellow);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+
+    header h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--yellow);
+      letter-spacing: -0.5px;
+    }
+
+    header span {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-left: 4px;
+      font-weight: 300;
+    }
+
+    .status-pill {
+      margin-left: auto;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      background: #21262d;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .status-pill .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+
+    .status-pill.running .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-pill.running { color: var(--green); border-color: #238636; }
+
+    main {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 0;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* LEFT PANEL */
+    .panel {
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    .fare-display {
+      background: linear-gradient(135deg, #1a1d23, #21262d);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .fare-display::before {
+      content: '';
+      position: absolute;
+      top: -40px; left: -40px;
+      width: 150px; height: 150px;
+      background: radial-gradient(circle, rgba(245,197,24,0.12), transparent 70%);
+      pointer-events: none;
+    }
+
+    .fare-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .fare-amount {
+      font-family: 'Syne', sans-serif;
+      font-size: 3.2rem;
+      font-weight: 800;
+      color: var(--yellow);
+      line-height: 1;
+      transition: color 0.3s;
+    }
+
+    .fare-amount.pulse {
+      animation: fareflash 0.3s ease;
+    }
+
+    @keyframes fareflash {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .fare-currency {
+      font-size: 1.4rem;
+      vertical-align: super;
+      margin-right: 4px;
+    }
+
+    /* Stats grid */
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .stat-card {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .stat-card .s-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    .stat-card .s-value {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .stat-card .s-unit {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-left: 3px;
+    }
+
+    /* Settings */
+    .section-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 4px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      gap: 10px;
+    }
+
+    .setting-row label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .setting-row input[type="number"] {
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+      width: 90px;
+      font-size: 0.9rem;
+      text-align: right;
+      outline: none;
+      font-family: 'Syne', sans-serif;
+    }
+
+    .setting-row input[type="number"]:focus {
+      border-color: var(--yellow-dim);
+    }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      font-family: 'Syne', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s, box-shadow 0.2s;
+      letter-spacing: 0.5px;
+    }
+
+    .btn:active { transform: scale(0.97); }
+
+    .btn-start {
+      background: var(--yellow);
+      color: #0d1117;
+      box-shadow: 0 4px 20px rgba(245,197,24,0.3);
+    }
+
+    .btn-start:hover { box-shadow: 0 4px 28px rgba(245,197,24,0.5); }
+    .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-stop {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+
+    .btn-stop:hover { background: rgba(248,81,73,0.1); }
+    .btn-stop:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .btn-reset {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      flex: 0 0 auto;
+      padding: 14px 16px;
+    }
+
+    .btn-reset:hover { color: var(--text); border-color: var(--text); }
+
+    /* Receipt */
+    .receipt {
+      background: #0d1117;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: none;
+      font-size: 0.83rem;
+    }
+
+    .receipt.show { display: block; }
+
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #21262d;
+      color: var(--muted);
+    }
+
+    .receipt-row:last-child { border-bottom: none; font-weight: 700; color: var(--yellow); font-size: 1rem; }
+
+    /* MAP */
+    #map {
+      flex: 1;
+      height: 100%;
+      min-height: 400px;
+    }
+
+    .leaflet-container { background: #0d1117; }
+
+    /* GPS info bar */
+    .gps-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .gps-chip {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      flex: 1;
+      min-width: 80px;
+      text-align: center;
+    }
+
+    .gps-chip span {
+      display: block;
+      font-family: 'Syne', sans-serif;
+      font-size: 0.9rem;
+      color: var(--text);
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    /* Map overlay badge */
+    .map-badge {
+      position: absolute;
+      top: 16px; right: 16px;
+      z-index: 1000;
+      background: rgba(13,17,23,0.9);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+    }
+
+    .map-badge strong {
+      display: block;
+      font-family: 'Syne', sans-serif;
+      font-size: 1.1rem;
+      color: var(--yellow);
+    }
+
+    /* Accuracy ring on map */
+    @keyframes ripple {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(2.5); opacity: 0; }
+    }
+
+    .ripple-icon {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: rgba(245,197,24,0.6);
+      border: 2px solid var(--yellow);
+      animation: ripple 1.5s infinite;
+    }
+
+    footer {
+      text-align: center;
+      padding: 12px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: var(--card);
+    }
+
+    @media (max-width: 768px) {
+      main { grid-template-columns: 1fr; }
+      #map { height: 320px; }
+      .panel { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🚕</div>
+  <div>
+    <h1>TaxiMeter Pro <span>GPS Fare Calculator</span></h1>
+  </div>
+  <div class="status-pill" id="statusPill">
+    <div class="dot"></div>
+    <span id="statusText">Idle</span>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT PANEL -->
+  <div class="panel">
+
+    <!-- Fare -->
+    <div class="fare-display">
+      <div class="fare-label">Total Fare</div>
+      <div class="fare-amount" id="fareDisplay">
+        <span class="fare-currency">$</span><span id="fareValue">0.00</span>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat-card">
+        <div class="s-label">⏱ Time</div>
+        <div class="s-value" id="timeDisplay">00:00<span class="s-unit">s</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">📍 Distance</div>
+        <div class="s-value" id="distDisplay">0.00<span class="s-unit">km</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">🚀 Speed</div>
+        <div class="s-value" id="speedDisplay">0<span class="s-unit">km/h</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">📡 Accuracy</div>
+        <div class="s-value" id="accDisplay">--<span class="s-unit">m</span></div>
+      </div>
+    </div>
+
+    <!-- GPS Coords -->
+    <div>
+      <div class="section-title">📌 Live Position</div>
+      <div class="gps-bar" style="margin-top:8px">
+        <div class="gps-chip">Lat <span id="latDisplay">--</span></div>
+        <div class="gps-chip">Lng <span id="lngDisplay">--</span></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div>
+      <div class="section-title">⚙️ Fare Settings</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <div class="setting-row">
+          <label>Base Fare ($)</label>
+          <input type="number" id="baseFare" value="2.50" min="0" step="0.10" />
+        </div>
+        <div class="setting-row">
+          <label>Per km ($)</label>
+          <input type="number" id="perKm" value="1.50" min="0" step="0.10" />
+        </div>
+        <div class="setting-row">
+          <label>Per minute ($)</label>
+          <input type="number" id="perMin" value="0.30" min="0" step="0.05" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="btn-row">
+      <button class="btn btn-start" id="btnStart" onclick="startRide()">▶ Start Ride</button>
+      <button class="btn btn-stop" id="btnStop" onclick="stopRide()" disabled>■ Stop</button>
+      <button class="btn btn-reset" id="btnReset" onclick="resetRide()" title="Reset">↺</button>
+    </div>
+
+    <!-- Receipt -->
+    <div class="receipt" id="receipt">
+      <div class="section-title" style="margin-bottom:10px">🧾 Ride Receipt</div>
+      <div class="receipt-row"><span>Base Fare</span><span id="recBase">$0.00</span></div>
+      <div class="receipt-row"><span>Distance Charge</span><span id="recDist">$0.00</span></div>
+      <div class="receipt-row"><span>Time Charge</span><span id="recTime">$0.00</span></div>
+      <div class="receipt-row"><span>Duration</span><span id="recDuration">0:00</span></div>
+      <div class="receipt-row"><span>Distance</span><span id="recKm">0.00 km</span></div>
+      <div class="receipt-row"><span>TOTAL</span><span id="recTotal">$0.00</span></div>
+    </div>
+
+  </div>
+
+  <!-- MAP -->
+  <div style="position:relative;flex:1">
+    <div id="map"></div>
+    <div class="map-badge">
+      <strong id="badgeFare">$0.00</strong>
+      Live Fare
+    </div>
+  </div>
+</main>
+
+<footer>
+  TaxiMeter Pro &nbsp;·&nbsp; Powered by OpenStreetMap &amp; Leaflet &nbsp;·&nbsp; GPS data stays on your device
+</footer>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────
+  let map, marker, routeLine, accuracyCircle;
+  let watchId = null;
+  let running = false;
+  let startTime = null;
+  let timerInterval = null;
+  let totalDistance = 0; // km
+  let lastPos = null;
+  let routePoints = [];
+  let elapsedSeconds = 0;
+
+  // ── Map Init ───────────────────────────────────────────────────────────
+  map = L.map('map', { zoomControl: true }).setView([7.2906, 80.6337], 13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19
+  }).addTo(map);
+
+  // Custom taxi icon
+  const taxiIcon = L.divIcon({
+    html: `<div style="
+      font-size:28px;
+      filter: drop-shadow(0 2px 6px rgba(245,197,24,0.8));
+      animation: bounce 1s infinite alternate;
+    ">🚕</div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    className: ''
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function calcFare(distKm, seconds) {
+    const base = parseFloat(document.getElementById('baseFare').value) || 0;
+    const pkm  = parseFloat(document.getElementById('perKm').value)  || 0;
+    const pmin = parseFloat(document.getElementById('perMin').value) || 0;
+    return base + (distKm * pkm) + ((seconds / 60) * pmin);
+  }
+
+  function fmt(n) { return n.toFixed(2); }
+
+  function fmtTime(s) {
+    const m = Math.floor(s / 60), sec = s % 60;
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  function updateUI() {
+    const fare = calcFare(totalDistance, elapsedSeconds);
+    document.getElementById('fareValue').textContent = fmt(fare);
+    document.getElementById('badgeFare').textContent = '$' + fmt(fare);
+    document.getElementById('distDisplay').innerHTML = fmt(totalDistance) + '<span class="s-unit">km</span>';
+    document.getElementById('timeDisplay').innerHTML = fmtTime(elapsedSeconds) + '<span class="s-unit"></span>';
+
+    // flash
+    const el = document.getElementById('fareDisplay');
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+  }
+
+  // ── Start ──────────────────────────────────────────────────────────────
+  function startRide() {
+    if (!navigator.geolocation) {
+      alert('❌ Geolocation is not supported by your browser.');
+      return;
+    }
+
+    running = true;
+    startTime = Date.now();
+    totalDistance = 0;
+    lastPos = null;
+    routePoints = [];
+    elapsedSeconds = 0;
+
+    // remove old route
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnStop').disabled = false;
+    document.getElementById('receipt').classList.remove('show');
+
+    const pill = document.getElementById('statusPill');
+    pill.classList.add('running');
+    document.getElementById('statusText').textContent = 'Running';
+
+    // Timer
+    timerInterval = setInterval(() => {
+      elapsedSeconds++;
+      updateUI();
+    }, 1000);
+
+    // GPS watch
+    watchId = navigator.geolocation.watchPosition(onPosition, onError, {
+      enableHighAccuracy: true,
+      maximumAge: 2000,
+      timeout: 10000
+    });
+  }
+
+  // ── GPS position callback ──────────────────────────────────────────────
+  function onPosition(pos) {
+    const { latitude: lat, longitude: lng, accuracy, speed } = pos.coords;
+
+    // Update display
+    document.getElementById('latDisplay').textContent = lat.toFixed(5);
+    document.getElementById('lngDisplay').textContent = lng.toFixed(5);
+    document.getElementById('accDisplay').innerHTML = Math.round(accuracy) + '<span class="s-unit">m</span>';
+
+    const kmh = speed ? Math.round(speed * 3.6) : 0;
+    document.getElementById('speedDisplay').innerHTML = kmh + '<span class="s-unit">km/h</span>';
+
+    // Distance
+    if (running && lastPos) {
+      const d = haversine(lastPos.lat, lastPos.lng, lat, lng);
+      if (d > 0.005) { // ignore tiny GPS jitter < 5m
+        totalDistance += d;
+      }
+    }
+    lastPos = { lat, lng };
+
+    // Map
+    const latlng = [lat, lng];
+    routePoints.push(latlng);
+
+    if (!marker) {
+      marker = L.marker(latlng, { icon: taxiIcon }).addTo(map);
+    } else {
+      marker.setLatLng(latlng);
+    }
+
+    if (!accuracyCircle) {
+      accuracyCircle = L.circle(latlng, {
+        radius: accuracy,
+        color: '#f5c518',
+        fillColor: '#f5c518',
+        fillOpacity: 0.06,
+        weight: 1
+      }).addTo(map);
+    } else {
+      accuracyCircle.setLatLng(latlng).setRadius(accuracy);
+    }
+
+    if (routePoints.length > 1) {
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(routePoints, {
+        color: '#f5c518',
+        weight: 4,
+        opacity: 0.8,
+        dashArray: running ? null : '6,8'
+      }).addTo(map);
+    }
+
+    map.setView(latlng, Math.max(map.getZoom(), 16));
+  }
+
+  function onError(err) {
+    console.warn('GPS error:', err.message);
+    document.getElementById('accDisplay').innerHTML = '⚠️';
+  }
+
+  // ── Stop ───────────────────────────────────────────────────────────────
+  function stopRide() {
+    running = false;
+    clearInterval(timerInterval);
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+    document.getElementById('statusPill').classList.remove('running');
+    document.getElementById('statusText').textContent = 'Stopped';
+
+    // Show receipt
+    const base = parseFloat(document.getElementById('baseFare').value) || 0;
+    const pkm  = parseFloat(document.getElementById('perKm').value) || 0;
+    const pmin = parseFloat(document.getElementById('perMin').value) || 0;
+    const distCharge = totalDistance * pkm;
+    const timeCharge = (elapsedSeconds / 60) * pmin;
+    const total = base + distCharge + timeCharge;
+
+    document.getElementById('recBase').textContent = '$' + fmt(base);
+    document.getElementById('recDist').textContent = '$' + fmt(distCharge);
+    document.getElementById('recTime').textContent = '$' + fmt(timeCharge);
+    document.getElementById('recDuration').textContent = fmtTime(elapsedSeconds);
+    document.getElementById('recKm').textContent = fmt(totalDistance) + ' km';
+    document.getElementById('recTotal').textContent = '$' + fmt(total);
+    document.getElementById('receipt').classList.add('show');
+  }
+
+  // ── Reset ──────────────────────────────────────────────────────────────
+  function resetRide() {
+    stopRide();
+    totalDistance = 0;
+    elapsedSeconds = 0;
+    lastPos = null;
+    routePoints = [];
+
+    if (marker) { map.removeLayer(marker); marker = null; }
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
+
+    document.getElementById('fareValue').textContent = '0.00';
+    document.getElementById('badgeFare').textContent = '$0.00';
+    document.getElementById('distDisplay').innerHTML = '0.00<span class="s-unit">km</span>';
+    document.getElementById('timeDisplay').innerHTML = '00:00';
+    document.getElementById('speedDisplay').innerHTML = '0<span class="s-unit">km/h</span>';
+    document.getElementById('accDisplay').innerHTML = '--<span class="s-unit">m</span>';
+    document.getElementById('latDisplay').textContent = '--';
+    document.getElementById('lngDisplay').textContent = '--';
+    document.getElementById('statusText').textContent = 'Idle';
+    document.getElementById('receipt').classList.remove('show');
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnStop').disabled = true;
+  }
+
+  // ── Bounce animation for emoji marker ─────────────────────────────────
+  const style = document.createElement('style');
+  style.textContent = `@keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-5px); } }`;
+  document.head.appendChild(style);
+
+  // Try to get initial position to center map
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(p => {
+      map.setView([p.coords.latitude, p.coords.longitude], 15);
+      // show a dim placeholder marker
+      L.circleMarker([p.coords.latitude, p.coords.longitude], {
+        radius: 8, color: '#f5c518', fillColor: '#f5c518', fillOpacity: 0.3, weight: 2
+      }).addTo(map).bindPopup('Your starting area').openPopup();
+    }, () => {}, { timeout: 5000 });
+  }
+</script>
+
+</body>
+</html>
